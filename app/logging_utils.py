@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 
 def utc_now_iso() -> str:
@@ -17,7 +18,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def log_event(event: str, level: str = "info", **fields) -> str:
+def log_event(event: str, level: str = "info", **fields: Any) -> str:
     """Ghi một dòng log JSON ra stdout.
 
     TODO (CP1): tạo dict gồm tối thiểu 3 khóa
@@ -29,9 +30,16 @@ def log_event(event: str, level: str = "info", **fields) -> str:
     In chuỗi JSON đó ra stdout **trên một dòng duy nhất**
     (``json.dumps(..., ensure_ascii=False)``, đừng dùng ``indent``) và
     trả về chính chuỗi đó.
-
-    Ví dụ:
-        >>> log_event("ask_completed", user_id="sv01", cost_usd=0.0001)
-        '{"event": "ask_completed", "level": "info", "timestamp": "...", ...}'
     """
-    raise NotImplementedError("TODO (CP1): cài đặt log_event")
+    log_data: dict[str, Any] = {
+        "event": event,
+        "level": level.lower(),
+        "timestamp": utc_now_iso(),
+        **fields,
+    }
+
+    log_line = json.dumps(log_data, ensure_ascii=False)
+    sys.stdout.write(log_line + "\n")
+    sys.stdout.flush()
+
+    return log_line

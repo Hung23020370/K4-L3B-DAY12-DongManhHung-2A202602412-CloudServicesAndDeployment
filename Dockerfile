@@ -1,34 +1,43 @@
-# ═══════════════════════════════════════════════════════════════════
-# CP2 — Containerization
-#
-# Dưới đây là Dockerfile "chạy được nhưng chưa production": một stage,
-# chạy bằng user root, không có health check, base image nặng.
-#
-# NHIỆM VỤ: sửa file này thành bản production-ready. Yêu cầu:
-#   [ ] Multi-stage build: stage `builder` cài dependency, stage runtime
-#       chỉ copy kết quả sang → image nhỏ hơn, không mang theo compiler.
-#       Cú pháp: `FROM python:3.11-slim AS builder`
-#   [ ] Base image slim (hoặc alpine), không dùng `python:3.11` bản đầy đủ
-#   [ ] COPY requirements.txt và pip install TRƯỚC khi COPY source code
-#       (Docker cache theo layer: sửa 1 dòng code không phải cài lại thư viện)
-#   [ ] Tạo user thường và chuyển sang bằng lệnh `USER` — container chạy
-#       root nghĩa là ai thoát được khỏi app cũng thành root trên host
-#   [ ] Có `HEALTHCHECK` gọi vào endpoint /health
-#   [ ] Đọc cổng từ biến môi trường PORT (cloud tự gán cổng, không cố định 8000)
-#
-# Kiểm tra:  pytest tests/test_cp2.py -v
-# Build thử: docker build -t day12-agent:prod .
-#            docker images day12-agent:prod     # xem dung lượng
-# ═══════════════════════════════════════════════════════════════════
-
-FROM python:3.11
+# ==========================================
+# STAGE 1: Builder (cài đặt dependency)
+# ==========================================
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-COPY . .
+# Copy requirements.txt TRƯỚC để tận dụng Docker layer cache
+COPY requirements.txt .
 
-RUN pip install -r requirements.txt
+# Cài đặt dependency vào thư mục riêng /install
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ==========================================
+# STAGE 2: Runtime (Image tối giản cho production)
+# ==========================================
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Tạo non-root user để chạy ứng dụng (bảo mật)
+RUN useradd --create-home --uid 10001 appuser
+
+# Chỉ copy kết quả dependency từ stage builder sang runtime
+COPY --from=builder /install /usr/local
+
+# Copy mã nguồn ứng dụng SAU khi đã cài đặt dependencies
+COPY app/ ./app
+COPY utils/ ./utils
+
+# Chuyển quyền sở hữu thư mục làm việc cho non-root user và switch user
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# Cấu hình HEALTHCHECK kiểm tra endpoint /health định kỳ
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + str('${PORT:-8000}') + '/health').read()" || exit 1
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Chạy app qua shell để đọc được biến môi trường PORT (cloud tự gán port)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

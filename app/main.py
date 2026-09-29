@@ -30,6 +30,10 @@ from .logging_utils import log_event
 from .rate_limiter import RateLimiter
 from .store import ConversationStore, get_redis_client
 
+from fastapi import Depends
+from app.auth import verify_api_key
+from app.logging_utils import log_event
+
 SERVICE_NAME = "day12-agent"
 SERVICE_VERSION = "1.0.0"
 
@@ -70,9 +74,6 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
-# ─────────────────────────────────────────────────────────────
-# Health & readiness
-# ─────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
     """Liveness probe — process còn sống không?
@@ -87,7 +88,17 @@ def health():
     lời câu hỏi "có cần restart container này không?". Nếu nó phụ thuộc
     Redis, Redis chết một nhịp là cả cụm container bị restart theo.
     """
-    raise NotImplementedError("TODO (CP1/CP4): cài đặt /health")
+    if getattr(lifecycle, "shutting_down", False):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "shutting_down"},
+        )
+
+    return {
+        "status": "ok",
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+    }
 
 
 @app.get("/ready")
@@ -110,42 +121,53 @@ def ready(store: ConversationStore = Depends(get_store)):
 # ─────────────────────────────────────────────────────────────
 @app.post("/ask")
 def ask(
-    payload: AskRequest,
+    req: AskRequest,
     user_id: str = Depends(verify_api_key),
     store: ConversationStore = Depends(get_store),
     limiter: RateLimiter = Depends(get_rate_limiter),
     guard: CostGuard = Depends(get_cost_guard),
 ):
-    """Hỏi agent một câu.
+    # 1. Rate limit check (chặn spam)
+    limiter.check(user_id)
 
-    TODO (CP3 + CP4) — làm ĐÚNG THỨ TỰ sau:
-      1. ``limiter.check(user_id)``           → 429 nếu gọi quá nhanh
-      2. ``guard.check(user_id)``             → 402 nếu hết ngân sách
-      3. ``history = store.get_history(user_id)``
-      4. ``result = ask_llm(payload.question, history)``
-      5. ``store.append(user_id, "user", payload.question)`` và
-         ``store.append(user_id, "assistant", result["answer"])``
-      6. ``guard.record(user_id, result["cost_usd"])``
-      7. ``log_event("ask_completed", user_id=user_id,
-         tokens_in=result["tokens_in"], tokens_out=result["tokens_out"],
-         cost_usd=result["cost_usd"])``
-      8. trả về::
+    # 2. Cost guard check (chặn vượt ngân sách)
+    guard.check(user_id)
 
-            {
-                "answer": result["answer"],
-                "user_id": user_id,
-                "history_length": len(history),
-                "cost_usd": result["cost_usd"],
-                "tokens": {"in": result["tokens_in"], "out": result["tokens_out"]},
-            }
+    # 3. Lấy lịch sử hội thoại
+    history = store.get_history(user_id)
+    history_length = len(history)
 
-    Vì sao check trước rồi mới gọi LLM? Vì tiền mất ở bước gọi LLM. Chặn sau
-    khi đã gọi thì bạn vừa trả tiền vừa trả lỗi.
+    # 4. Gọi LLM
+    llm_result = ask_llm(req.question, history=history)
+    answer = llm_result["answer"]
+    cost = llm_result["cost_usd"]
 
-    ``user_id`` do ``verify_api_key`` trả về, nên request không có API key
-    hợp lệ sẽ dừng ở 401 trước khi chạm vào bất cứ dòng nào ở đây.
-    """
-    raise NotImplementedError("TODO (CP3/CP4): cài đặt /ask")
+    # 5. Cập nhật lịch sử (lưu cả user và assistant)
+    store.append(user_id, "user", req.question)
+    store.append(user_id, "assistant", answer)
+
+    # 6. Ghi nhận chi phí thực tế phát sinh
+    guard.record(user_id, cost)
+
+    # 7. Ghi Structured Log
+    log_event(
+        event="ask_completed",
+        level="info",
+        user_id=user_id,
+        cost_usd=cost,
+    )
+
+    # 8. Trả về đầy đủ 5 trường theo yêu cầu của test
+    return {
+        "answer": answer,
+        "user_id": user_id,
+        "history_length": history_length,
+        "cost_usd": cost,
+        "tokens": {
+            "in": llm_result["tokens_in"],
+            "out": llm_result["tokens_out"],
+        },
+    }
 
 
 if __name__ == "__main__":
