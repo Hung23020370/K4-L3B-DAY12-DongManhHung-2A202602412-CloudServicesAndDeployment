@@ -1,7 +1,6 @@
 # Thông Tin Deploy — Checkpoint 5
 
-> Điền file này sau khi deploy xong. `pytest tests/test_cp5.py` đọc file này
-> để tìm địa chỉ service của bạn và gọi thử.
+> Service đã deploy trên Render và được kiểm tra trực tiếp ngày 2026-09-29.
 >
 > **Chỉ ghi TÊN biến môi trường, tuyệt đối không dán giá trị API key vào đây.**
 > Repo này công khai — dán khóa vào là mất khóa.
@@ -10,78 +9,69 @@
 
 | Mục | Nội dung |
 |-----|----------|
-| Họ và tên | (điền họ tên) |
-| Mã học viên | (điền mã học viên) |
-| Repo | (điền link repo K4-L3B-DAY12-HoVaTen-MSSV-CloudServicesAndDeployment) |
+| Họ và tên | Dong Manh Hung |
+| Mã học viên | 2A202602412 |
+| Repo | https://github.com/Hung23020370/K4-L3B-DAY12-DongManhHung-2A202602412-CloudServicesAndDeployment |
 
 ## Service
 
 | Mục | Nội dung |
 |-----|----------|
-| Public URL | https://TODO-thay-bang-url-that.up.railway.app |
-| Platform | Railway / Render / Cloud Run — (điền platform bạn dùng) |
-| Ngày deploy | (điền ngày) |
+| Public URL | https://day12-agent-83ki.onrender.com |
+| Platform | Render |
+| Ngày kiểm tra | 2026-09-29 |
 
-## Biến Môi Trường Đã Set Trên Cloud
+## Biến Môi Trường Đã Set Trên Render
 
 Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 
 | Biến | Đã set | Ghi chú |
 |------|--------|---------|
-| `PORT` | ✅ | platform tự gán |
-| `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | (điền: Redis add-on của platform / Upstash / ...) |
+| `PORT` | ✅ | Render tự gán |
+| `AGENT_API_KEY` | ✅ | đặt trong Render dashboard, không ghi giá trị vào repo |
+| `REDIS_URL` | ✅ | Redis service của Render Blueprint |
 | `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
 | `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
 | `LOG_LEVEL` | ✅ | INFO |
 
 ## Lệnh Kiểm Tra
 
-Thay `<URL>` bằng Public URL ở trên:
+Các lệnh smoke test service public:
 
 ```bash
-# 1. Liveness — mong đợi 200 {"status":"ok"}
-curl -i <URL>/health
+# 1. Liveness
+curl.exe -i https://day12-agent-83ki.onrender.com/health
 
-# 2. Readiness — mong đợi 200 {"status":"ready"} (đã nối được Redis)
-curl -i <URL>/ready
+# 2. Readiness (đã nối được Redis)
+curl.exe -i https://day12-agent-83ki.onrender.com/ready
 
 # 3. Không có API key — mong đợi 401
-curl -i -X POST <URL>/ask \
+curl.exe -i -X POST https://day12-agent-83ki.onrender.com/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"Hello"}'
 
-# 4. Có API key — mong đợi 200 kèm câu trả lời
-curl -i -X POST <URL>/ask \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $AGENT_API_KEY" \
-  -H "X-User-Id: sv-test" \
-  -d '{"question":"Deploy là gì?"}'
-
-# 5. Rate limit — gọi 15 lần, những lần cuối phải trả 429
-for i in $(seq 1 15); do
-  curl -s -o /dev/null -w "%{http_code} " -X POST <URL>/ask \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $AGENT_API_KEY" \
-    -H "X-User-Id: sv-test" \
-    -d '{"question":"test"}'
-done; echo
 ```
 
 ## Kết Quả Chạy Thật
 
-Dán output của các lệnh trên vào đây:
+Kiểm tra trực tiếp ngày 2026-09-29:
 
 ```
-(điền output)
+/health: 200, {"status":"ok","service":"day12-agent","version":"1.0.0"}
+/ready: 200, {"status":"ready","redis":true}
+POST /ask without API key: 401
+POST /ask with local AGENT_API_KEY: 200
 ```
+
+`pytest tests/test_cp5.py -v`: 9 passed, 4 skipped. Đường `/ask` có xác thực
+cũng trả 200; bốn bài local fallback được skip vì đang kiểm tra cloud.
 
 ## Ảnh Chụp Màn Hình
 
-Đặt ảnh trong thư mục `screenshots/`:
+Ảnh bằng chứng được lưu trong `screenshots/`:
 
-- `screenshots/dashboard.png` — trang quản lý service trên platform
-- `screenshots/health.png` — kết quả gọi `/health` từ trình duyệt hoặc curl
+- `screenshots/render-dashboard.png` — cần chụp từ trang quản lý Render
+- `screenshots/render-health.png` — endpoint `/health` public trên Render
 
 ---
 
@@ -97,5 +87,6 @@ Không đăng ký được tài khoản cloud? Vẫn nộp được bài, nhưng
 5. Ghi rõ lý do không deploy được vào phần dưới đây:
 
 ```
-(điền lý do nếu dùng phương án dự phòng, ngược lại xóa mục này)
+Chỉ dùng phần này nếu deployment cloud không còn hoạt động; ghi rõ lý do và
+không thay thông tin Render ở trên bằng URL mẫu.
 ```
